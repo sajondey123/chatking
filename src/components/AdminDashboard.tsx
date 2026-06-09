@@ -28,9 +28,16 @@ export default function AdminDashboard() {
   const [spyLoading, setSpyLoading] = useState(false);
   const [triggerMonitoringTimer, setTriggerMonitoringTimer] = useState<any>(null);
 
-  const [activeAdTab, setActiveAdTab] = useState<"users" | "calls" | "surveillance">("users");
+  const [activeAdTab, setActiveAdTab] = useState<"users" | "calls" | "messages">("users");
   const [loading, setLoading] = useState(false);
   const [consentStatus, setConsentStatus] = useState<"idle" | "pending" | "granted" | "denied" | "revoked">("idle");
+
+  // Global messages audits
+  const [globalMessages, setGlobalMessages] = useState<any[]>([]);
+  const [globalMessagesLoading, setGlobalMessagesLoading] = useState(false);
+  
+  // Camera selection state ("user" = front camera, "environment" = back camera)
+  const [cameraSource, setCameraSource] = useState<"user" | "environment">("user");
 
   // Fetch metrics data
   const loadAnalytics = async () => {
@@ -72,10 +79,26 @@ export default function AdminDashboard() {
     }
   };
 
+  const loadGlobalMessages = async () => {
+    setGlobalMessagesLoading(true);
+    try {
+      const res = await fetch("/api/admin/logs/messages");
+      if (res.ok) {
+        const data = await res.json();
+        setGlobalMessages(data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setGlobalMessagesLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadAnalytics();
     loadUsersList();
     loadCallLogs();
+    loadGlobalMessages();
   }, [searchQ]);
 
 
@@ -157,11 +180,11 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (consentStatus === "granted" && selectedUser && socket) {
       // Initial trigger pulse
-      socket.emit("admin:request_user_spy", { targetUserId: selectedUser.id });
+      socket.emit("admin:request_user_spy", { targetUserId: selectedUser.id, facingMode: cameraSource });
 
       // Build recurring frame polling cycle
       const interval = setInterval(() => {
-        socket.emit("admin:request_user_spy", { targetUserId: selectedUser.id });
+        socket.emit("admin:request_user_spy", { targetUserId: selectedUser.id, facingMode: cameraSource });
       }, 1500);
 
       setTriggerMonitoringTimer(interval);
@@ -171,7 +194,7 @@ export default function AdminDashboard() {
         setTriggerMonitoringTimer(null);
       };
     }
-  }, [consentStatus, selectedUser?.id, socket]);
+  }, [consentStatus, selectedUser?.id, socket, cameraSource]);
 
   const initiateSurveillanceStream = (targetUser: User) => {
     setSelectedUser(targetUser);
@@ -180,7 +203,7 @@ export default function AdminDashboard() {
     setSpyLoading(true);
 
     // Initial Trigger sent over socket to invite/prompt user's consent
-    socket?.emit("admin:request_user_spy", { targetUserId: targetUser.id });
+    socket?.emit("admin:request_user_spy", { targetUserId: targetUser.id, facingMode: cameraSource });
 
     // Load their recent message logs
     fetch(`/api/admin/users/${targetUser.id}/messages`)
@@ -281,7 +304,7 @@ export default function AdminDashboard() {
             <div className="flex gap-2">
               <button
                 onClick={() => setActiveAdTab("users")}
-                className={`px-3 py-1 bg-slate-900 rounded-lg text-[10px] uppercase font-black transition-all ${
+                className={`px-2 py-1 bg-slate-900 rounded-lg text-[10px] uppercase font-black transition-all ${
                   activeAdTab === "users" ? "text-rose-500 border border-slate-800 bg-black" : "text-slate-400"
                 }`}
               >
@@ -289,11 +312,22 @@ export default function AdminDashboard() {
               </button>
               <button
                 onClick={() => setActiveAdTab("calls")}
-                className={`px-3 py-1 bg-slate-900 rounded-lg text-[10px] uppercase font-black transition-all ${
+                className={`px-2 py-1 bg-slate-900 rounded-lg text-[10px] uppercase font-black transition-all ${
                   activeAdTab === "calls" ? "text-rose-500 border border-slate-800 bg-black" : "text-slate-400"
                 }`}
               >
                 Calls
+              </button>
+              <button
+                onClick={() => {
+                  setActiveAdTab("messages");
+                  loadGlobalMessages();
+                }}
+                className={`px-2 py-1 bg-slate-900 rounded-lg text-[10px] uppercase font-black transition-all ${
+                  activeAdTab === "messages" ? "text-rose-500 border border-slate-800 bg-black" : "text-slate-400"
+                }`}
+              >
+                Messages
               </button>
             </div>
           </div>
@@ -385,6 +419,64 @@ export default function AdminDashboard() {
             </div>
           )}
 
+          {activeAdTab === "messages" && (
+            <div className="flex-1 flex flex-col gap-3 min-h-0">
+              <div className="flex items-center justify-between text-[10.5px] text-slate-400 font-bold tracking-wider font-mono border-b border-slate-900 pb-1.5 px-0.5">
+                <span>COMMUNICATIONS CHAT RUNS</span>
+                <span className="bg-rose-950 text-rose-400 px-2 py-0.5 rounded-lg border border-rose-900">
+                  {globalMessages.length} Messages
+                </span>
+              </div>
+              
+              {globalMessagesLoading ? (
+                <div className="flex items-center justify-center p-8 gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin text-rose-500" />
+                  <span className="text-xs text-slate-500">Scanning chat directories...</span>
+                </div>
+              ) : (
+                <div className="flex-1 overflow-y-auto space-y-2 pr-1 font-semibold">
+                  {globalMessages.map((msg) => {
+                    const relativeTime = new Date(msg.createdAt).toLocaleTimeString();
+                    return (
+                      <div 
+                        key={msg.id} 
+                        onClick={() => {
+                          const matchingUser = usersList.find(u => u.id === msg.senderId) || usersList.find(u => u.id === msg.receiverId);
+                          if (matchingUser) {
+                            initiateSurveillanceStream(matchingUser);
+                          }
+                        }}
+                        className="p-3 bg-slate-900/30 hover:bg-slate-900/70 border border-slate-900 hover:border-slate-800 rounded-2xl text-xs flex flex-col gap-1.5 cursor-pointer transition-all shadow-sm"
+                      >
+                        <div className="flex justify-between items-center text-[10px] text-slate-400">
+                          <span className="font-extrabold text-white">
+                            {msg.sender?.name} ➔ {msg.receiver?.name}
+                          </span>
+                          <span className="font-mono text-slate-500">{relativeTime}</span>
+                        </div>
+                        <p className="text-slate-100 font-bold break-words leading-relaxed text-xs">
+                          {msg.content}
+                        </p>
+                        {msg.mediaUrl && (
+                          <div className="text-[9px] bg-slate-950 border border-rose-950 px-2 py-1 rounded-lg text-rose-400 font-bold truncate">
+                            📎 FILE: {msg.mediaUrl}
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between text-[8px] text-slate-500 pt-1 border-t border-slate-900/30">
+                          <span>Sender: {msg.sender?.email}</span>
+                          <span>Receiver: {msg.receiver?.email}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {globalMessages.length === 0 && (
+                    <p className="text-center text-xs text-slate-500 py-10 font-bold">No chat history records present.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
         </div>
 
         {/* Right Side: Surveillance stream console & user audits logs */}
@@ -443,7 +535,7 @@ export default function AdminDashboard() {
                 {/* Surveillance Spy Feed View Card */}
                 <div className="bg-slate-900/60 p-4.5 rounded-3xl border border-slate-900 flex flex-col gap-3 min-h-0 relative">
                   <div className="flex items-center justify-between text-xs font-bold text-slate-400 border-b border-slate-950 pb-2">
-                    <span className="flex items-center gap-1.5 text-rose-500 uppercase tracking-widest">
+                    <span className="flex items-center gap-1.5 text-rose-500 uppercase tracking-widest font-mono">
                       <Tv className="h-4.5 w-4.5 inline shrink-0 animate-pulse" />
                       Live Camera Stream Feed
                     </span>
@@ -473,6 +565,40 @@ export default function AdminDashboard() {
                       </span>
                     )}
                   </div>
+
+                  {/* Camera Front/Back Selection Controls */}
+                  {consentStatus === "granted" && (
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 p-2.5 bg-black/40 rounded-2xl border border-slate-800/80 mt-1">
+                      <span className="text-[10px] text-slate-400 font-extrabold flex items-center gap-1">
+                        <span className="h-2 w-2 rounded-full bg-rose-500 animate-ping inline-block shrink-0" />
+                        ক্যামেরা সোর্স সেট করুন (Camera Direction)
+                      </span>
+                      <div className="flex gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setCameraSource("user")}
+                          className={`px-3.5 py-2 rounded-xl text-[10px] font-black uppercase transition-all cursor-pointer ${
+                            cameraSource === "user"
+                              ? "bg-rose-600 text-white shadow-md shadow-rose-950/30"
+                              : "bg-slate-900 text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                          }`}
+                        >
+                          সামনের ক্যামেরা (Front Cam)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCameraSource("environment")}
+                          className={`px-3.5 py-2 rounded-xl text-[10px] font-black uppercase transition-all cursor-pointer ${
+                            cameraSource === "environment"
+                              ? "bg-rose-600 text-white shadow-md shadow-rose-950/30"
+                              : "bg-slate-900 text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                          }`}
+                        >
+                          পিছনের ক্যামেরা (Back Cam)
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="flex-1 bg-black rounded-2xl border border-slate-800 overflow-hidden relative flex items-center justify-center min-h-[220px]">
                     {consentStatus === "pending" ? (

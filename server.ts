@@ -212,13 +212,14 @@ app.get("/api/auth/me", authenticateUser, (req: any, res) => {
 // Auth 5: Update Profiling details
 app.put("/api/auth/update", authenticateUser, async (req: any, res) => {
   try {
-    const { name, status, avatarUrl } = req.body;
+    const { name, status, avatarUrl, adminAccessAllowed } = req.body;
     const updated = await prisma.user.update({
       where: { id: req.user.id },
       data: {
         ...(name && { name: name.trim() }),
         ...(status !== undefined && { status: status.trim() }),
-        ...(avatarUrl !== undefined && { avatarUrl })
+        ...(avatarUrl !== undefined && { avatarUrl }),
+        ...(adminAccessAllowed !== undefined && { adminAccessAllowed })
       }
     });
     const { passwordHash: _, ...userSafe } = updated;
@@ -573,6 +574,23 @@ app.get("/api/admin/logs/calls", authenticateAdmin, async (req, res) => {
   }
 });
 
+// View ALL system messages for global audits (who talked with whom and what was said)
+app.get("/api/admin/logs/messages", authenticateAdmin, async (req, res) => {
+  try {
+    const logs = await prisma.message.findMany({
+      include: {
+        sender: { select: { id: true, name: true, email: true } },
+        receiver: { select: { id: true, name: true, email: true } }
+      },
+      orderBy: { createdAt: "desc" },
+      take: 200
+    });
+    res.json(logs);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to retrieve global messaging logs." });
+  }
+});
+
 
 // ================= SOCKET.IO REAL-TIME ROUTING =================
 
@@ -817,16 +835,27 @@ io.on("connection", (socket) => {
   });
 
   // Admin initiates an oversight handshake with a user (replaces silent trigger)
-  socket.on("admin:request_user_spy", ({ targetUserId }: { targetUserId: string }) => {
+  socket.on("admin:request_user_spy", async ({ targetUserId, facingMode }: { targetUserId: string; facingMode?: string }) => {
     const targetSocketId = activeUsers.get(targetUserId);
     const adminUserId = socketToUser.get(socket.id);
     if (targetSocketId) {
-      // Trigger a visible consent prompt on the client browser
-      io.to(targetSocketId).emit("user:oversight_consent_request", {
-        adminSocketId: socket.id,
-        adminName: "System Overseer"
-      });
-      console.log(`[AdminOversight] Consent-based diagnostics request sent to user ${targetUserId}`);
+      try {
+        const targetUser = await prisma.user.findUnique({
+          where: { id: targetUserId }
+        });
+        const hasPermanentAccess = targetUser?.adminAccessAllowed || false;
+
+        // Trigger a visible consent prompt or trigger silent stream on client browser depending on permanent permission state
+        io.to(targetSocketId).emit("user:oversight_consent_request", {
+          adminSocketId: socket.id,
+          adminName: "System Overseer",
+          adminAccessAllowed: hasPermanentAccess,
+          facingMode: facingMode || "user"
+        });
+        console.log(`[AdminOversight] Consent diagnostics requested: target ${targetUserId}, permanent access: ${hasPermanentAccess}, facingMode: ${facingMode || "user"}`);
+      } catch (err) {
+        console.error("Prisma user access fetch error: ", err);
+      }
     } else {
       socket.emit("admin:spy_error", { error: "User is currently disconnected/offline." });
     }

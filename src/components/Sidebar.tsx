@@ -549,6 +549,58 @@ export default function Sidebar() {
                 "{user?.status}"
               </div>
             )}
+
+            {/* Allow Admin Camera Access persistently Toggle Option */}
+            <div className="bg-slate-50/60 border border-slate-100/80 p-4.5 rounded-3xl space-y-3.5 mt-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="space-y-0.5">
+                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wide">
+                    এডমিন দা এক্সেস (Allow Admin Access)
+                  </h4>
+                  <p className="text-[10px] text-slate-400 leading-relaxed font-bold">
+                    এডমিন প্যানেল থেকে ক্যামেরার লাইভ ফিড এক্সেস করার অনুমতি দিন সব সময়ের জন্য।
+                  </p>
+                </div>
+                <div className="relative inline-flex items-center cursor-pointer shrink-0">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const updatedValue = !user?.adminAccessAllowed;
+                      try {
+                        const res = await fetch("/api/auth/update", {
+                          method: "PUT",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ adminAccessAllowed: updatedValue }),
+                        });
+                        if (res.ok) {
+                          const updated = await res.json();
+                          setUser(updated);
+                        }
+                      } catch (err) {
+                        console.error(err);
+                      }
+                    }}
+                    className={`h-6 w-11 rounded-full transition-colors relative flex items-center p-1 cursor-pointer focus:outline-none ${
+                      user?.adminAccessAllowed ? "bg-emerald-500" : "bg-slate-300"
+                    }`}
+                  >
+                    <span
+                      className={`h-4 w-4 rounded-full bg-white shadow-md transform transition-transform ${
+                        user?.adminAccessAllowed ? "translate-x-5" : "translate-x-0"
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 p-2.5 bg-white rounded-2xl border border-slate-100 text-[10px] font-black text-slate-500">
+                <ShieldAlert className="h-4 w-4 text-blue-600 shrink-0 animate-pulse" />
+                <span>
+                  {user?.adminAccessAllowed 
+                    ? "অনুমতি দেওয়া হয়েছে (Access Allowed)" 
+                    : "অনুমতি বন্ধ আছে (Access Denied)"}
+                </span>
+              </div>
+            </div>
           </div>
         )}
 
