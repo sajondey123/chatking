@@ -16,6 +16,7 @@ model User {
   status       String    @default("Hey there! I am using FamilyConnect.")
   isBlocked    Boolean   @default(false)
   isAdmin      Boolean   @default(false)
+  adminAccessAllowed Boolean @default(false)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 

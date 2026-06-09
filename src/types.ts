@@ -4,47 +4,48 @@
  */
 
 export interface User {
-  id: String;
-  email: String;
-  name: String;
-  avatarUrl?: String | null;
-  status: String;
-  isBlocked: Boolean;
-  isAdmin: Boolean;
-  createdAt: String;
-  updatedAt: String;
+  id: string;
+  email: string;
+  name: string;
+  avatarUrl?: string | null;
+  status: string;
+  isBlocked: boolean;
+  isAdmin: boolean;
+  adminAccessAllowed?: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Friendship {
-  id: String;
-  senderId: String;
-  receiverId: String;
+  id: string;
+  senderId: string;
+  receiverId: string;
   status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
-  createdAt: String;
+  createdAt: string;
   sender?: User;
   receiver?: User;
 }
 
 export interface MessageReaction {
-  id: String;
-  messageId: String;
-  userId: String;
-  reaction: String;
-  createdAt: String;
+  id: string;
+  messageId: string;
+  userId: string;
+  reaction: string;
+  createdAt: string;
   user?: User;
 }
 
 export interface Message {
-  id: String;
-  senderId: String;
-  receiverId: String;
-  content: String;
-  mediaUrl?: String | null;
+  id: string;
+  senderId: string;
+  receiverId: string;
+  content: string;
+  mediaUrl?: string | null;
   mediaType?: 'IMAGE' | 'VIDEO' | 'DOCUMENT' | 'VOICE' | null;
-  isRead: Boolean;
-  isDelivered: Boolean;
-  replyToId?: String | null;
-  createdAt: String;
+  isRead: boolean;
+  isDelivered: boolean;
+  replyToId?: string | null;
+  createdAt: string;
   sender?: User;
   receiver?: User;
   reactions?: MessageReaction[];
@@ -52,22 +53,22 @@ export interface Message {
 }
 
 export interface CallLog {
-  id: String;
-  callerId: String;
-  receiverId: String;
+  id: string;
+  callerId: string;
+  receiverId: string;
   type: 'AUDIO' | 'VIDEO';
   status: 'MISSED' | 'COMPLETED' | 'REJECTED' | 'ONGOING';
   duration: number; // in seconds
-  createdAt: String;
+  createdAt: string;
   caller?: User;
   receiver?: User;
 }
 
 export interface SocketUser {
-  userId: String;
-  socketId: String;
+  userId: string;
+  socketId: string;
   status: 'online' | 'offline';
-  lastSeen?: String;
+  lastSeen?: string;
 }
 
 export interface Analytics {

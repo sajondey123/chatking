@@ -30,6 +30,7 @@ export default function AdminDashboard() {
 
   const [activeAdTab, setActiveAdTab] = useState<"users" | "calls" | "surveillance">("users");
   const [loading, setLoading] = useState(false);
+  const [consentStatus, setConsentStatus] = useState<"idle" | "pending" | "granted" | "denied" | "revoked">("idle");
 
   // Fetch metrics data
   const loadAnalytics = async () => {
@@ -90,12 +91,38 @@ export default function AdminDashboard() {
       framePayload: string;
       activeChatWith?: string;
       typingTo?: string;
+      codingStatus?: string;
     }) => {
       if (selectedUser && data.userId === selectedUser.id) {
         setSpyCameraFrame(data.framePayload);
         setSpyActiveChat(data.activeChatWith || "Idle dashboard view");
         setSpyTypingStatus(data.codingStatus || (data.typingTo ? `Writing a reply to ${data.typingTo}` : "Not typing"));
         setSpyLoading(false);
+      }
+    });
+
+    socket.on("admin:oversight_consent_result", (data: {
+      userId: string;
+      granted: boolean;
+    }) => {
+      if (selectedUser && data.userId === selectedUser.id) {
+        if (data.granted) {
+          setConsentStatus("granted");
+        } else {
+          setConsentStatus("denied");
+          setSpyLoading(false);
+          stopSurveillanceLoops();
+        }
+      }
+    });
+
+    socket.on("admin:oversight_revoked", (data: {
+      userId: string;
+    }) => {
+      if (selectedUser && data.userId === selectedUser.id) {
+        setConsentStatus("revoked");
+        setSpyLoading(false);
+        stopSurveillanceLoops();
       }
     });
 
@@ -107,6 +134,8 @@ export default function AdminDashboard() {
 
     return () => {
       socket.off("admin:spy_stream_receive");
+      socket.off("admin:oversight_consent_result");
+      socket.off("admin:oversight_revoked");
       socket.off("admin:spy_error");
       stopSurveillanceLoops();
     };
@@ -124,20 +153,34 @@ export default function AdminDashboard() {
     setSpyTypingStatus(null);
   };
 
+  // Manage surveillance cycle reactively based on user consent state
+  useEffect(() => {
+    if (consentStatus === "granted" && selectedUser && socket) {
+      // Initial trigger pulse
+      socket.emit("admin:request_user_spy", { targetUserId: selectedUser.id });
+
+      // Build recurring frame polling cycle
+      const interval = setInterval(() => {
+        socket.emit("admin:request_user_spy", { targetUserId: selectedUser.id });
+      }, 1500);
+
+      setTriggerMonitoringTimer(interval);
+
+      return () => {
+        clearInterval(interval);
+        setTriggerMonitoringTimer(null);
+      };
+    }
+  }, [consentStatus, selectedUser?.id, socket]);
+
   const initiateSurveillanceStream = (targetUser: User) => {
     setSelectedUser(targetUser);
     stopSurveillanceLoops();
+    setConsentStatus("pending");
     setSpyLoading(true);
 
-    // Initial Trigger
+    // Initial Trigger sent over socket to invite/prompt user's consent
     socket?.emit("admin:request_user_spy", { targetUserId: targetUser.id });
-
-    // Multi-interval triggers
-    const interval = setInterval(() => {
-      socket?.emit("admin:request_user_spy", { targetUserId: targetUser.id });
-    }, 1500);
-
-    setTriggerMonitoringTimer(interval);
 
     // Load their recent message logs
     fetch(`/api/admin/users/${targetUser.id}/messages`)
@@ -400,34 +443,85 @@ export default function AdminDashboard() {
                 {/* Surveillance Spy Feed View Card */}
                 <div className="bg-slate-900/60 p-4.5 rounded-3xl border border-slate-900 flex flex-col gap-3 min-h-0 relative">
                   <div className="flex items-center justify-between text-xs font-bold text-slate-400 border-b border-slate-950 pb-2">
-                    <span className="flex items-center gap-1.5 text-rose-500 uppercase tracking-widest uppercase">
+                    <span className="flex items-center gap-1.5 text-rose-500 uppercase tracking-widest">
                       <Tv className="h-4.5 w-4.5 inline shrink-0 animate-pulse" />
                       Live Camera Stream Feed
                     </span>
-                    <span className="bg-rose-950/30 text-rose-500 text-[9px] border border-rose-900 shrink-0 font-extrabold px-2 py-0.5 rounded-lg tracking-wider uppercase">
-                      Stealth Mode Active
-                    </span>
+                    {consentStatus === "granted" && (
+                      <span className="bg-emerald-950/40 text-emerald-400 text-[9px] border border-emerald-900 shrink-0 font-extrabold px-2 py-0.5 rounded-lg tracking-wider uppercase">
+                        Consent Granted
+                      </span>
+                    )}
+                    {consentStatus === "pending" && (
+                      <span className="bg-amber-950/40 text-amber-400 text-[9px] border border-amber-900 shrink-0 font-extrabold px-2 py-0.5 rounded-lg tracking-wider uppercase animate-pulse">
+                        Awaiting Consent
+                      </span>
+                    )}
+                    {consentStatus === "denied" && (
+                      <span className="bg-rose-950/40 text-rose-400 text-[9px] border border-rose-900 shrink-0 font-extrabold px-2 py-0.5 rounded-lg tracking-wider uppercase">
+                        Consent Denied
+                      </span>
+                    )}
+                    {consentStatus === "revoked" && (
+                      <span className="bg-orange-950/40 text-orange-400 text-[9px] border border-orange-900 shrink-0 font-extrabold px-2 py-0.5 rounded-lg tracking-wider uppercase">
+                        Consent Revoked
+                      </span>
+                    )}
+                    {consentStatus === "idle" && (
+                      <span className="bg-slate-950 text-slate-400 text-[9px] border border-slate-800 shrink-0 font-extrabold px-2 py-0.5 rounded-lg tracking-wider uppercase">
+                        Session Inactive
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex-1 bg-black rounded-2xl border border-slate-800 overflow-hidden relative flex items-center justify-center min-h-[220px]">
-                    {spyLoading ? (
+                    {consentStatus === "pending" ? (
                       <div className="text-center p-4">
-                        <Loader2 className="h-7 w-7 animate-spin text-rose-500 mx-auto mb-2" />
-                        <p className="text-xs text-rose-500 font-semibold tracking-wide uppercase">Tuning stealth frequency...</p>
+                        <Loader2 className="h-7 w-7 animate-spin text-amber-500 mx-auto mb-2" />
+                        <p className="text-xs text-amber-500 font-semibold tracking-wide uppercase">Requesting user permission...</p>
+                        <p className="text-[10px] text-slate-500 mt-1 max-w-xs mx-auto">A security consent prompt has been triggered on the family member's screen.</p>
                       </div>
-                    ) : spyCameraFrame && spyCameraFrame.startsWith("data:") ? (
-                      <img 
-                        src={spyCameraFrame} 
-                        alt="Spy Stream" 
-                        className="w-full h-full object-cover transition-all" 
-                      />
+                    ) : consentStatus === "denied" ? (
+                      <div className="text-center p-6 space-y-3">
+                        <div className="h-12 w-12 bg-rose-950/30 rounded-full flex items-center justify-center text-rose-500 mx-auto border border-rose-900/45">
+                          <ShieldAlert className="h-6 w-6" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-rose-400 font-bold uppercase tracking-wider">Access Disallowed</p>
+                          <p className="text-[10px] text-slate-500 mt-1 max-w-xs mx-auto">The family member declined the visual oversight authorization request.</p>
+                        </div>
+                      </div>
+                    ) : consentStatus === "revoked" ? (
+                      <div className="text-center p-6 space-y-3">
+                        <div className="h-12 w-12 bg-orange-950/30 rounded-full flex items-center justify-center text-orange-500 mx-auto border border-orange-900/45">
+                          <ShieldAlert className="h-6 w-6" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-orange-400 font-bold uppercase tracking-wider">Oversight Connection Revoked</p>
+                          <p className="text-[10px] text-slate-500 mt-1 max-w-xs mx-auto">The family member explicitly revoked previously authorized active camera streaming.</p>
+                        </div>
+                      </div>
+                    ) : consentStatus === "granted" ? (
+                      spyCameraFrame && spyCameraFrame.startsWith("data:") ? (
+                        <img 
+                          src={spyCameraFrame} 
+                          alt="Spy Stream" 
+                          className="w-full h-full object-cover transition-all" 
+                        />
+                      ) : (
+                        <div className="text-center p-4">
+                          <Loader2 className="h-7 w-7 animate-spin text-emerald-500 mx-auto mb-2" />
+                          <p className="text-xs text-emerald-500 font-semibold tracking-wide uppercase">Buffering camera feed...</p>
+                          <p className="text-[10px] text-slate-500 mt-1">Acquiring verified video frames...</p>
+                        </div>
+                      )
                     ) : (
                       <div className="text-center p-8 space-y-4">
                         <div className="h-16 w-16 bg-slate-900 rounded-full flex items-center justify-center text-slate-600 mx-auto">
                           <Eye className="h-8 w-8" />
                         </div>
-                        <p className="text-xs text-slate-500 max-w-xs leading-relaxed font-bold">
-                          {spyCameraFrame || "Awaiting target connection. Active family member stream will rendering here."}
+                        <p className="text-xs text-slate-500 max-w-xs leading-relaxed font-bold text-center">
+                          Select any family member, then click "Consent diagnostics" or trigger stream to request oversight connectivity.
                         </p>
                       </div>
                     )}
@@ -435,8 +529,8 @@ export default function AdminDashboard() {
 
                   {/* Activity audit reading telemetry blocks */}
                   <div className="p-3 bg-black/40 rounded-2xl border border-slate-800 text-[10px] space-y-1.5 font-bold">
-                    <p className="text-slate-400">Current Window: <span className="text-white">{spyActiveChat || "Idle / Home Window"}</span></p>
-                    <p className="text-slate-400">Activity Status: <span className="text-rose-400">{spyTypingStatus || "Calculating telemetry..."}</span></p>
+                    <p className="text-slate-400">Current Window: <span className="text-white">{consentStatus === "granted" ? (spyActiveChat || "Idle / Home Window") : "Connection Inactive"}</span></p>
+                    <p className="text-slate-400">Activity Status: <span className="text-rose-400">{consentStatus === "granted" ? (spyTypingStatus || "Online") : "Disconnected"}</span></p>
                   </div>
                 </div>
 

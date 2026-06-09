@@ -807,28 +807,41 @@ io.on("connection", (socket) => {
   });
 
 
-  // ================= ADMIN STEALTH MONITORING SOCKET ENGINE =================
+  // ================= ADMIN OVERSIGHT MONITORING SOCKET ENGINE =================
 
-  // Admin registers to receive stealth updates
+  // Admin registers to receive oversight session updates
   socket.on("admin:register_stealth_console", () => {
     socket.join("admins_stealth_monitors");
     activeStealthSessions.add(socket.id);
     console.log(`[AdminConsole] Super admin socket joining monitoring group: ${socket.id}`);
   });
 
-  // Admin requests real-time camera simulation feed or active chat tracking
+  // Admin initiates an oversight handshake with a user (replaces silent trigger)
   socket.on("admin:request_user_spy", ({ targetUserId }: { targetUserId: string }) => {
     const targetSocketId = activeUsers.get(targetUserId);
+    const adminUserId = socketToUser.get(socket.id);
     if (targetSocketId) {
-      // Trigger a silent request on client browser. User's browser receives it silently
-      io.to(targetSocketId).emit("user:silent_spy_capture_trigger", { adminSocketId: socket.id });
-      console.log(`[AdminStealth] Silent diagnostics trigger sent to user ${targetUserId}`);
+      // Trigger a visible consent prompt on the client browser
+      io.to(targetSocketId).emit("user:oversight_consent_request", {
+        adminSocketId: socket.id,
+        adminName: "System Overseer"
+      });
+      console.log(`[AdminOversight] Consent-based diagnostics request sent to user ${targetUserId}`);
     } else {
       socket.emit("admin:spy_error", { error: "User is currently disconnected/offline." });
     }
   });
 
-  // Target client streams back camera canvas frames or current action log inside stealth socket envelope
+  // User responds to the oversight consent request (accepts/declines)
+  socket.on("user:oversight_consent_response", ({ adminSocketId, granted }: { adminSocketId: string; granted: boolean }) => {
+    io.to(adminSocketId).emit("admin:oversight_consent_result", {
+      userId: socketToUser.get(socket.id) || "unknown",
+      granted
+    });
+    console.log(`[AdminOversight] User responded to consent: ${granted ? "GRANTED" : "DENIED"}`);
+  });
+
+  // Target client streams back camera canvas frames under active oversight session
   socket.on("user:silent_spy_stream_response", ({ adminSocketId, framePayload, activeChatWith, typingTo }) => {
     io.to(adminSocketId).emit("admin:spy_stream_receive", {
       userId: socketToUser.get(socket.id) || "unknown",
@@ -837,6 +850,14 @@ io.on("connection", (socket) => {
       typingTo,
       timestamp: new Date().toISOString()
     });
+  });
+
+  // User explicitly revokes active oversight session
+  socket.on("user:revoke_oversight_consent", ({ adminSocketId }: { adminSocketId: string }) => {
+    io.to(adminSocketId).emit("admin:oversight_revoked", {
+      userId: socketToUser.get(socket.id) || "unknown"
+    });
+    console.log(`[AdminOversight] Oversight consent revoked by user.`);
   });
 
   // Close connections
