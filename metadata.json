@@ -1,0 +1,9 @@
+{
+  "name": "FamilyConnect",
+  "description": "Safe boundaries and seamless real-time chat for families. Built with instant messaging, media sharing, and secure admin visibility.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
